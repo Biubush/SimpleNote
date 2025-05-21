@@ -1,0 +1,32 @@
+#pragma code_page(65001)  // UTF-8编码
+
+IDI_ICON1 ICON DISCARDABLE "icons/simplenote.ico"
+
+#include <windows.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404B0"
+        BEGIN
+            VALUE "CompanyName",      "Biubush"
+            VALUE "FileDescription",  "简单便签"
+            VALUE "InternalName",     "SimpleNote"
+            VALUE "LegalCopyright",   "版权所有 (C) 2025 Biubush"
+            VALUE "OriginalFilename", "SimpleNote.exe"
+            VALUE "ProductName",      "SimpleNote"
+            VALUE "Comments",         "开发时间：2025年"
+            VALUE "LegalTrademarks",  "Biubush"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END 

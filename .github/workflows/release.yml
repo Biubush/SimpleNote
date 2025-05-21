@@ -1,0 +1,355 @@
+name: 构建并发布 SimpleNote
+
+on:
+  push:
+    tags:
+      - 'v*' # 当推送以v开头的标签时触发，如v1.0.0
+
+jobs:
+  build-windows:
+    name: 构建 Windows 程序
+    runs-on: windows-latest
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+        
+      - name: 获取版本号
+        id: get_version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: 安装 Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          
+      - name: 设置 MSVC 环境
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          
+      - name: 创建构建目录
+        run: mkdir build
+        
+      - name: 运行 qmake
+        run: |
+          cd build
+          qmake CONFIG+=release PREFIX=/ ..\SimpleNote.pro
+          
+      - name: 编译项目
+        run: |
+          cd build
+          nmake
+          
+      - name: 打包应用程序
+        run: |
+          cd build\release
+          windeployqt --release --no-translations --no-opengl-sw SimpleNote.exe
+          
+      - name: 创建发布包
+        id: create_package
+        run: |
+          $VERSION = "${{ steps.get_version.outputs.VERSION }}"
+          $PACKAGE_NAME = "SimpleNote-$VERSION-windows"
+          
+          # 创建发布目录
+          New-Item -Path $PACKAGE_NAME -ItemType Directory
+          
+          # 复制所需可执行文件和DLL
+          Copy-Item -Path build\release\SimpleNote.exe -Destination $PACKAGE_NAME
+          
+          # 复制Qt相关DLL和插件，排除DirectX相关依赖
+          Get-ChildItem -Path build\release -Filter "*.dll" | 
+            Where-Object { $_.Name -notmatch "d3d|dx|Direct" } | 
+            Copy-Item -Destination $PACKAGE_NAME
+          
+          # 复制必要的Qt插件文件夹
+          $QtPluginDirs = @("platforms", "styles", "bearer", "sqldrivers", "multimedia")
+          foreach ($dir in $QtPluginDirs) {
+            if (Test-Path -Path "build\release\$dir") {
+              New-Item -Path "$PACKAGE_NAME\$dir" -ItemType Directory -Force
+              Get-ChildItem -Path "build\release\$dir\*.dll" | 
+                Where-Object { $_.Name -notmatch "d3d|dx|Direct|qwindows" } | 
+                Copy-Item -Destination "$PACKAGE_NAME\$dir" -Force
+            }
+          }
+          
+          # 确保platforms文件夹中有qwindows.dll
+          if (Test-Path -Path "build\release\platforms\qwindows.dll") {
+            New-Item -Path "$PACKAGE_NAME\platforms" -ItemType Directory -Force -ErrorAction SilentlyContinue
+            Copy-Item -Path "build\release\platforms\qwindows.dll" -Destination "$PACKAGE_NAME\platforms\" -Force
+          }
+          
+          # 复制文档
+          Copy-Item -Path README.md -Destination "$PACKAGE_NAME\README.txt"
+          
+          # 创建版本信息文件
+          @"
+          SimpleNote 版本: $VERSION
+          构建时间: $([System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId((Get-Date), 'China Standard Time').ToString('yyyy-MM-dd HH:mm:ss'))
+          构建系统: Windows
+          "@ | Out-File -FilePath "$PACKAGE_NAME\version.txt" -Encoding utf8
+          
+          # 创建ZIP包
+          Compress-Archive -Path $PACKAGE_NAME -DestinationPath "$PACKAGE_NAME.zip"
+        shell: pwsh
+      
+      - name: 上传 Windows 构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: SimpleNote-${{ steps.get_version.outputs.VERSION }}-windows.zip
+          retention-days: 1
+  
+  build-ubuntu:
+    name: 构建 Ubuntu 程序
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+        
+      - name: 获取版本号
+        id: get_version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libgl1-mesa-dev
+      
+      - name: 安装 Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.5.3'
+          host: 'linux'
+          target: 'desktop'
+          arch: 'gcc_64'
+          aqtversion: '==3.1.*'
+          
+      - name: 创建构建目录
+        run: mkdir build
+        
+      - name: 运行 qmake
+        run: |
+          cd build
+          qmake CONFIG+=release PREFIX=/ ../SimpleNote.pro
+          
+      - name: 编译项目
+        run: |
+          cd build
+          make -j$(nproc)
+          
+      - name: 创建AppImage
+        id: appimage
+        run: |
+          # 版本号和包名
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          PACKAGE_NAME="SimpleNote-$VERSION-ubuntu"
+          
+          # 打印当前环境变量和路径信息，用于调试
+          echo "Current working directory: $(pwd)"
+          echo "QTDIR path: $QTDIR"
+          echo "PATH: $PATH"
+          echo "Qt binaries: $(find $QTDIR -name qmake)"
+          
+          # 确保qmake在PATH中
+          export PATH=$QTDIR/bin:$PATH
+          which qmake || echo "qmake not found in PATH"
+          
+          # 创建AppDir结构
+          mkdir -p AppDir/usr/{bin,lib,share/applications,share/icons/hicolor/256x256/apps}
+          
+          # 复制二进制文件和库
+          cp build/SimpleNote AppDir/usr/bin/
+          
+          # 创建.desktop文件
+          cat > AppDir/usr/share/applications/simplenote.desktop << EOF
+          [Desktop Entry]
+          Name=SimpleNote
+          Exec=SimpleNote
+          Icon=simplenote
+          Type=Application
+          Categories=Office;
+          EOF
+          
+          # 复制图标
+          cp icons/simplenote.png AppDir/usr/share/icons/hicolor/256x256/apps/
+          
+          # 复制README和创建版本信息
+          cp README.md AppDir/usr/share/README.txt
+          echo "SimpleNote 版本: $VERSION" > AppDir/usr/share/version.txt
+          echo "构建时间: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> AppDir/usr/share/version.txt
+          echo "构建系统: Ubuntu" >> AppDir/usr/share/version.txt
+          
+          # 获取linuxdeploy和linuxdeploy-plugin-qt
+          wget -c "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          wget -c "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage"
+          chmod +x linuxdeploy*.AppImage
+          
+          # 设置环境变量 - 显式指定qmake的完整路径
+          export QMAKE="$(which qmake)"
+          echo "Using QMAKE: $QMAKE"
+          export VERSION=$VERSION
+          export OUTPUT="SimpleNote-$VERSION-x86_64.AppImage"
+          
+          # 排除常见的开发文件库和DirectX相关库
+          EXCLUDE_LIBS="libstdc++.so libgcc_s.so libd3d libDirect"
+          EXCLUDE_ARGS=""
+          for lib in $EXCLUDE_LIBS; do
+            EXCLUDE_ARGS="$EXCLUDE_ARGS --exclude-library=$lib"
+          done
+          
+          # 移除任何源代码文件和不需要的文件夹
+          find AppDir -name "*.cpp" -o -name "*.h" -o -name "*.o" -o -name "*.obj" | xargs rm -f 2>/dev/null || true
+          
+          # 创建AppImage
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage $EXCLUDE_ARGS
+          
+          # 如果上面的命令失败，尝试直接调用插件
+          if [ ! -f "$OUTPUT" ]; then
+            echo "First attempt failed, trying alternative approach..."
+            ./linuxdeploy-x86_64.AppImage --appdir AppDir
+            QMAKE="$QTDIR/bin/qmake" ./linuxdeploy-plugin-qt-x86_64.AppImage --appdir AppDir
+            ./linuxdeploy-x86_64.AppImage --appdir AppDir --output appimage $EXCLUDE_ARGS
+          fi
+          
+          # 创建tar.gz包
+          mkdir -p $PACKAGE_NAME
+          if [ -f "$OUTPUT" ]; then
+            cp "$OUTPUT" $PACKAGE_NAME/
+            cp README.md $PACKAGE_NAME/README.txt
+            cp AppDir/usr/share/version.txt $PACKAGE_NAME/
+            tar -czvf $PACKAGE_NAME.tar.gz $PACKAGE_NAME
+          else
+            echo "Failed to create AppImage. Packaging what we have..."
+            cp build/SimpleNote $PACKAGE_NAME/
+            cp README.md $PACKAGE_NAME/README.txt
+            tar -czvf $PACKAGE_NAME.tar.gz $PACKAGE_NAME
+          fi
+      
+      - name: 上传 AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: SimpleNote-${{ steps.get_version.outputs.VERSION }}-x86_64.AppImage
+          if-no-files-found: warn
+      
+      - name: 上传 Ubuntu 压缩包
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-package
+          path: SimpleNote-${{ steps.get_version.outputs.VERSION }}-ubuntu.tar.gz
+          retention-days: 1
+  
+  create-release:
+    name: 创建 Release
+    needs: [build-windows, build-ubuntu]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # 获取完整的git历史记录
+        
+      - name: 获取版本号
+        id: get_version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        
+      - name: 获取版本特性
+        id: get_changelog
+        shell: bash
+        run: |
+          # 获取当前tag
+          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+          
+          # 获取上一个tag，如果没有则获取第一个commit
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 $CURRENT_TAG^ 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          
+          # 如果是第一个tag，就从仓库开始获取所有commit
+          if [[ "$PREVIOUS_TAG" == $(git rev-list --max-parents=0 HEAD) ]]; then
+            echo "这是第一个发布版本，包含以下所有更新：" > changelog.md
+          else
+            echo "## 本次更新内容（$PREVIOUS_TAG 至 $CURRENT_TAG）：" > changelog.md
+          fi
+          
+          # 获取commit信息并格式化
+          git log --pretty=format:"- %s" $PREVIOUS_TAG..$CURRENT_TAG >> changelog.md
+          
+          # 如果没有commit信息，添加默认信息
+          if [[ $(cat changelog.md | wc -l) -le 1 ]]; then
+            echo "- 本次发布无重大更新内容" >> changelog.md
+          fi
+          
+          # 保存到输出变量中
+          CHANGELOG=$(cat changelog.md)
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: 下载 Windows 构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-package
+          
+      - name: 下载 Ubuntu 构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: ubuntu-package
+          
+      - name: 下载 AppImage
+        uses: actions/download-artifact@v4
+        with:
+          name: appimage
+          
+      - name: 列出下载的文件
+        run: ls -la
+      
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: SimpleNote ${{ steps.get_version.outputs.VERSION }}
+          tag_name: ${{ github.ref }}
+          draft: false
+          prerelease: false
+          files: |
+            SimpleNote-${{ steps.get_version.outputs.VERSION }}-windows.zip
+            SimpleNote-${{ steps.get_version.outputs.VERSION }}-ubuntu.tar.gz
+            SimpleNote-${{ steps.get_version.outputs.VERSION }}-x86_64.AppImage
+          body: |
+            # SimpleNote ${{ steps.get_version.outputs.VERSION }}
+            
+            简单便签应用程序 - 基于Qt开发的轻量级便签工具
+            
+            ## 发布说明
+            
+            这是由GitHub Actions自动构建的发布版本。
+            
+            ${{ steps.get_changelog.outputs.CHANGELOG }}
+            
+            ### 安装说明
+            
+            #### Windows
+            
+            1. 下载并解压 SimpleNote-${{ steps.get_version.outputs.VERSION }}-windows.zip
+            2. 运行解压后目录中的 SimpleNote.exe
+            
+            #### Ubuntu/Linux
+            
+            方法1: 使用AppImage (推荐)
+            1. 下载 SimpleNote-${{ steps.get_version.outputs.VERSION }}-x86_64.AppImage
+            2. 添加执行权限: `chmod +x SimpleNote-${{ steps.get_version.outputs.VERSION }}-x86_64.AppImage`
+            3. 直接运行: `./SimpleNote-${{ steps.get_version.outputs.VERSION }}-x86_64.AppImage`
+            
+            方法2: 使用压缩包
+            1. 下载并解压 SimpleNote-${{ steps.get_version.outputs.VERSION }}-ubuntu.tar.gz
+            2. 添加执行权限并运行AppImage文件
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
