@@ -31,6 +31,7 @@
 #include <QVBoxLayout>
 #include <QSpacerItem>
 #include <QLabel>
+#include <QRegularExpression>
 
 NoteEditWidget::NoteEditWidget(QWidget *parent) :
     QWidget(parent),
@@ -213,11 +214,18 @@ void NoteEditWidget::setupUI()
     
     // 更新置顶按钮状态
     updateStayOnTopButton();
+    
+    // 获取字数统计标签指针
+    m_wordCountLabel = findChild<QLabel*>("wordCountLabel");
+    if (m_wordCountLabel) {
+        m_wordCountLabel->setText("字数：0");
+    }
 }
 
 void NoteEditWidget::setupConnections()
 {
     connect(ui->contentTextEdit, &QTextEdit::textChanged, this, &NoteEditWidget::onContentChanged);
+    connect(ui->contentTextEdit, &QTextEdit::textChanged, this, &NoteEditWidget::updateWordCount);
     connect(ui->titleLineEdit, &QLineEdit::textChanged, this, &NoteEditWidget::onTitleChanged);
     connect(ui->boldButton, &QPushButton::clicked, this, &NoteEditWidget::onBoldButtonClicked);
     connect(ui->italicButton, &QPushButton::clicked, this, &NoteEditWidget::onItalicButtonClicked);
@@ -354,6 +362,9 @@ void NoteEditWidget::setNote(const Note &note)
     }
     
     activateWindow(); // 确保窗口获得焦点
+    
+    // 更新字数统计
+    updateWordCount();
 }
 
 void NoteEditWidget::createNewNote()
@@ -401,6 +412,9 @@ void NoteEditWidget::createNewNote()
     }
     
     activateWindow(); // 确保窗口获得焦点
+    
+    // 更新字数统计
+    updateWordCount();
 }
 
 Note NoteEditWidget::getCurrentNote() const
@@ -1501,4 +1515,34 @@ bool ImageEventFilter::eventFilter(QObject *watched, QEvent *event)
     }
     
     return QObject::eventFilter(watched, event);
+}
+
+void NoteEditWidget::updateWordCount()
+{
+    if (!m_wordCountLabel) return;
+    // 获取正文纯文本内容
+    QString text = ui->contentTextEdit->toPlainText();
+    int count = 0;
+    // 统计汉字数量
+    QRegularExpression hanziRe("[\u4e00-\u9fa5]");
+    QRegularExpressionMatchIterator it = hanziRe.globalMatch(text);
+    while (it.hasNext()) {
+        it.next();
+        ++count;
+    }
+    // 统计英文单词数量
+    QRegularExpression wordRe("[A-Za-z]+(?:'[A-Za-z]+)?");
+    it = wordRe.globalMatch(text);
+    while (it.hasNext()) {
+        it.next();
+        ++count;
+    }
+    // 统计数字串数量（每个连续数字串算一个字）
+    QRegularExpression numRe("\\d+");
+    it = numRe.globalMatch(text);
+    while (it.hasNext()) {
+        it.next();
+        ++count;
+    }
+    m_wordCountLabel->setText(QString("字数：%1").arg(count));
 } 

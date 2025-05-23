@@ -113,6 +113,7 @@ private slots:
     void onStayOnTopClicked();
     void onPaste();
     void showImageViewer(const QImage &image); // 显示图片查看器
+    void updateWordCount(); // 新增：更新字数统计
 
 private:
     Ui::NoteEditWidget *ui;
@@ -128,6 +129,8 @@ private:
     QMap<QString, QString> m_tempImages; // 临时图片映射（资源名->文件路径）
     QMap<QString, QImage> m_originalImages; // 保存原始图片，用于显示原图
     ImageEventFilter *m_imageEventFilter; // 图片事件过滤器
+    // 新增：字数统计标签指针
+    QLabel* m_wordCountLabel;
 
     void updateFormattingButtons();
     void setupConnections();

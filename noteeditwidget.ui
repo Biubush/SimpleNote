@@ -177,6 +177,22 @@
        </property>
       </widget>
      </item>
+     <item>
+      <widget class="QLabel" name="wordCountLabel">
+       <property name="minimumWidth">
+        <number>80</number>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignVCenter</set>
+       </property>
+       <property name="text">
+        <string>字数：0</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color: #888888; font-size: 10pt;</string>
+       </property>
+      </widget>
+     </item>
     </layout>
    </item>
   </layout>
