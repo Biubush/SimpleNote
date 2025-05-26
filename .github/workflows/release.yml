@@ -282,9 +282,14 @@ jobs:
           
           # 获取commit信息并格式化
           git log --pretty=format:"- %s" $PREVIOUS_TAG..$CURRENT_TAG >> changelog.md
+          # 确保文件末尾有换行符
+          echo "" >> changelog.md
+          
+          # 检查是否有实际的commit消息（通过grep匹配以"-"开头的行）
+          COMMIT_COUNT=$(grep -c "^-" changelog.md || true)
           
           # 如果没有commit信息，添加默认信息
-          if [[ $(cat changelog.md | wc -l) -le 1 ]]; then
+          if [[ "$COMMIT_COUNT" -eq 0 ]]; then
             echo "- 本次发布无重大更新内容" >> changelog.md
           fi
           
