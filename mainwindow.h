@@ -3,6 +3,8 @@
 
 #include <QMainWindow>
 #include <QMap>
+#include <QToolBar>
+#include <QAction>
 #include "notelistwidget.h"
 #include "noteeditwidget.h"
 #include "notedatabase.h"
@@ -29,6 +31,10 @@ private slots:
     void onEditWindowClosed();
     void onNoteEditWindowClosed(int noteId);
     void closeEvent(QCloseEvent *event) override;
+    
+    // 新增的导入导出功能
+    void exportDatabase();
+    void importDatabase();
 
 private:
     Ui::MainWindow *ui;
@@ -36,10 +42,14 @@ private:
     NoteEditWidget *m_noteEditWidget;
     NoteDatabase *m_database;
     QMap<int, NoteEditWidget*> m_openNoteWindows;
+    QToolBar *m_toolBar;
+    QAction *m_exportAction;
+    QAction *m_importAction;
     
     void setupUI();
     void setupConnections();
     void setupAppearance();
+    void setupToolBar();
     
     void openOrActivateNoteWindow(const Note &note);
     void closeAllNoteWindows();

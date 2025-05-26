@@ -780,11 +780,11 @@ bool NoteEditWidget::eventFilter(QObject *obj, QEvent *event)
                 if (foundImage) {
                     QPoint viewportPos = mouseEvent->pos();
                     if (imageRect.contains(viewportPos)) {
-                        if (!originalImage.isNull()) {
-                            // 显示图片查看器
-                            showImageViewer(originalImage);
-                            return true; // 事件已处理
-                        }
+                if (!originalImage.isNull()) {
+                    // 显示图片查看器
+                    showImageViewer(originalImage);
+                    return true; // 事件已处理
+                }
                     }
                 }
                 
@@ -837,9 +837,9 @@ bool NoteEditWidget::eventFilter(QObject *obj, QEvent *event)
                 
                 // 如果找到了图片，并且鼠标位置在图片的实际区域内
                 if (foundImage && imageRect.contains(mouseEvent->pos())) {
-                    // 设置手型光标
-                    ui->contentTextEdit->viewport()->setCursor(Qt::PointingHandCursor);
-                    return true; // 事件已处理
+                // 设置手型光标
+                ui->contentTextEdit->viewport()->setCursor(Qt::PointingHandCursor);
+                return true; // 事件已处理
                 } else {
                     // 恢复默认光标
                     ui->contentTextEdit->viewport()->setCursor(Qt::IBeamCursor);
@@ -877,8 +877,8 @@ QImage NoteEditWidget::resizeImageToFitWidth(const QImage &image)
         
         // 使用高质量缩放创建高清图像
         QImage scaledImage = image.scaled(scaledWidth, scaledHeight, 
-                                         Qt::KeepAspectRatio, 
-                                         Qt::SmoothTransformation);
+                          Qt::KeepAspectRatio, 
+                          Qt::SmoothTransformation);
         
         // 设置设备像素比，这样逻辑尺寸会自动调整
         scaledImage.setDevicePixelRatio(devicePixelRatio);
