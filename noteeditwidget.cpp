@@ -250,6 +250,13 @@ void NoteEditWidget::setupConnections()
                 // 保存原始图片
                 QImage originalImage = image;
                 
+                // 获取设备像素比，处理Windows屏幕缩放问题
+                qreal devicePixelRatio = qApp->devicePixelRatio();
+                if (devicePixelRatio > 1.0) {
+                    // 确保原始图像保持正确的设备像素比
+                    originalImage.setDevicePixelRatio(1.0); // 重置为原始像素
+                }
+                
                 // 调整图片大小
                 image = resizeImageToFitWidth(image);
                 
@@ -765,12 +772,24 @@ QImage NoteEditWidget::resizeImageToFitWidth(const QImage &image)
 {
     int availableWidth = getAvailableWidth();
     
+    // 获取设备像素比，考虑Windows的屏幕缩放
+    qreal devicePixelRatio = qApp->devicePixelRatio();
+    
     // 如果图片宽度超过可用宽度，则按比例缩放
     if (image.width() > availableWidth) {
         return image.scaled(availableWidth, 
                           (availableWidth * image.height()) / image.width(),
                           Qt::KeepAspectRatio, 
                           Qt::SmoothTransformation);
+    }
+    
+    // 如果图片实际尺寸不超过可用宽度，考虑设备像素比
+    // 当设备像素比不为1时，需要调整图片显示尺寸以匹配实际物理尺寸
+    if (devicePixelRatio > 1.0) {
+        // 创建一个新的图像，保持原始像素大小，但为QTextDocument标记正确的逻辑尺寸
+        QImage adjustedImage = image.copy();
+        adjustedImage.setDevicePixelRatio(devicePixelRatio);
+        return adjustedImage;
     }
     
     // 否则返回原图
@@ -818,6 +837,13 @@ bool NoteEditWidget::insertImageFromClipboard()
         if (!image.isNull()) {
             // 保存原始图片
             QImage originalImage = image;
+            
+            // 获取设备像素比，处理Windows屏幕缩放问题
+            qreal devicePixelRatio = qApp->devicePixelRatio();
+            if (devicePixelRatio > 1.0) {
+                // 确保原始图像保持正确的设备像素比
+                originalImage.setDevicePixelRatio(1.0); // 重置为原始像素
+            }
             
             // 调整图片大小
             image = resizeImageToFitWidth(image);
@@ -906,6 +932,9 @@ void NoteEditWidget::adjustImagesInDocument()
     // 获取当前可用宽度
     int availableWidth = getAvailableWidth();
     
+    // 获取设备像素比，处理Windows屏幕缩放问题
+    qreal devicePixelRatio = qApp->devicePixelRatio();
+    
     // 遍历文档寻找图片
     for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
         for (QTextBlock::iterator it = block.begin(); it != block.end(); ++it) {
@@ -962,11 +991,21 @@ void NoteEditWidget::adjustImagesInDocument()
                             QUrl(imageName),
                             QVariant(resizedImage));
                         
+                        // 计算显示尺寸，考虑设备像素比
+                        int displayWidth = resizedImage.width();
+                        int displayHeight = resizedImage.height();
+                        
+                        // 如果原始图片宽度小于可用宽度，需要考虑设备像素比
+                        if (originalImage.width() <= availableWidth && devicePixelRatio > 1.0) {
+                            displayWidth = qRound(resizedImage.width() / devicePixelRatio);
+                            displayHeight = qRound(resizedImage.height() / devicePixelRatio);
+                        }
+                        
                         // 更新图片宽度和高度
-                        if (imageFormat.width() != resizedImage.width() || 
-                            imageFormat.height() != resizedImage.height()) {
-                            imageFormat.setWidth(resizedImage.width());
-                            imageFormat.setHeight(resizedImage.height());
+                        if (imageFormat.width() != displayWidth || 
+                            imageFormat.height() != displayHeight) {
+                            imageFormat.setWidth(displayWidth);
+                            imageFormat.setHeight(displayHeight);
                             
                             // 创建临时光标，定位到这个片段
                             QTextCursor tempCursor(document);
@@ -1077,6 +1116,9 @@ void NoteEditWidget::processContentAfterLoading()
     QTextDocument *document = ui->contentTextEdit->document();
     bool documentModified = false;
     
+    // 获取设备像素比，处理Windows屏幕缩放问题
+    qreal devicePixelRatio = qApp->devicePixelRatio();
+    
     // 遍历文档中的图片标签，找到路径
     for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
         for (QTextBlock::iterator it = block.begin(); it != block.end(); ++it) {
@@ -1131,11 +1173,21 @@ void NoteEditWidget::processContentAfterLoading()
                                 QUrl(imagePath),
                                 QVariant(resizedImage));
                             
+                            // 计算显示尺寸，考虑设备像素比
+                            int displayWidth = resizedImage.width();
+                            int displayHeight = resizedImage.height();
+                            
+                            // 如果原始图片宽度小于可用宽度，需要考虑设备像素比
+                            if (image.width() <= availableWidth && devicePixelRatio > 1.0) {
+                                displayWidth = qRound(resizedImage.width() / devicePixelRatio);
+                                displayHeight = qRound(resizedImage.height() / devicePixelRatio);
+                            }
+                            
                             // 更新图片的宽度和高度属性
-                            if (imageFormat.width() != resizedImage.width() || 
-                                imageFormat.height() != resizedImage.height()) {
-                                imageFormat.setWidth(resizedImage.width());
-                                imageFormat.setHeight(resizedImage.height());
+                            if (imageFormat.width() != displayWidth || 
+                                imageFormat.height() != displayHeight) {
+                                imageFormat.setWidth(displayWidth);
+                                imageFormat.setHeight(displayHeight);
                                 
                                 // 创建临时光标，定位到这个片段
                                 QTextCursor tempCursor(document);
@@ -1204,8 +1256,11 @@ void NoteEditWidget::showImageViewer(const QImage &image)
         return;
     }
     
+    // 获取设备像素比，处理Windows屏幕缩放问题
+    qreal devicePixelRatio = qApp->devicePixelRatio();
+    
     // 创建并显示图片查看器对话框
-    ImageViewerDialog *viewer = new ImageViewerDialog(image, this);
+    ImageViewerDialog *viewer = new ImageViewerDialog(image, devicePixelRatio, this);
     viewer->setAttribute(Qt::WA_DeleteOnClose); // 关闭时自动删除
     viewer->setModal(true);
     viewer->show();
@@ -1213,9 +1268,10 @@ void NoteEditWidget::showImageViewer(const QImage &image)
 
 // ------------------- ImageViewerDialog 实现 -------------------
 
-ImageViewerDialog::ImageViewerDialog(const QImage &image, QWidget *parent)
+ImageViewerDialog::ImageViewerDialog(const QImage &image, qreal devicePixelRatio, QWidget *parent)
     : QDialog(parent, Qt::Dialog | Qt::WindowCloseButtonHint | Qt::WindowTitleHint)
     , m_originalImage(image)
+    , m_devicePixelRatio(devicePixelRatio)
 {
     setWindowTitle("图片查看器");
     setMinimumSize(500, 400);
@@ -1228,9 +1284,13 @@ ImageViewerDialog::ImageViewerDialog(const QImage &image, QWidget *parent)
         int maxWidth = screenGeometry.width() * 0.8;
         int maxHeight = screenGeometry.height() * 0.8;
         
+        // 计算图像实际物理尺寸（考虑DPI缩放）
+        int actualWidth = image.width();
+        int actualHeight = image.height();
+        
         // 如果图像比屏幕小，使用图像大小加上边距
-        if (image.width() < maxWidth && image.height() < maxHeight) {
-            initialSize = QSize(image.width() + 40, image.height() + 100); // 加上边距和控制栏高度
+        if (actualWidth < maxWidth && actualHeight < maxHeight) {
+            initialSize = QSize(actualWidth + 40, actualHeight + 100); // 加上边距和控制栏高度
         } else {
             // 否则使用屏幕的80%
             initialSize = QSize(maxWidth, maxHeight);
@@ -1248,6 +1308,9 @@ ImageViewerDialog::ImageViewerDialog(const QImage &image, QWidget *parent)
         QRect screenGeometry = screen->geometry();
         move(screenGeometry.center() - rect().center());
     }
+    
+    // 自动应用反向缩放，确保默认100%缩放时显示正确的实际尺寸
+    QTimer::singleShot(0, this, &ImageViewerDialog::resetZoom);
 }
 
 void ImageViewerDialog::setupUI()
@@ -1338,6 +1401,7 @@ void ImageViewerDialog::setupUI()
     // 创建缩放滑块
     m_zoomSlider = new QSlider(Qt::Horizontal, this);
     m_zoomSlider->setRange(10, 400);
+    // 初始设置为100%，但实际缩放会在resetZoom中处理
     m_zoomSlider->setValue(100);
     m_zoomSlider->setTickInterval(50);
     m_zoomSlider->setTickPosition(QSlider::TicksBelow);
@@ -1432,7 +1496,16 @@ void ImageViewerDialog::setupConnections()
 
 void ImageViewerDialog::updateZoom(int value)
 {
+    // 基本缩放比例
     qreal scale = value / 100.0;
+    
+    // 如果有DPI缩放，需要适当调整缩放比例
+    if (m_devicePixelRatio > 1.0) {
+        // 结合DPI缩放和用户请求的缩放
+        scale = scale / m_devicePixelRatio;
+    }
+    
+    // 应用缩放变换
     QTransform transform;
     transform.scale(scale, scale);
     m_graphicsView->setTransform(transform);
@@ -1440,19 +1513,35 @@ void ImageViewerDialog::updateZoom(int value)
 
 void ImageViewerDialog::resetZoom()
 {
-    m_zoomSlider->setValue(100);
+    // 重置变换
     m_graphicsView->resetTransform();
     
     // 确保图像在视图中居中
     m_graphicsView->setSceneRect(m_pixmapItem->boundingRect());
     m_graphicsView->centerOn(m_pixmapItem);
     
-    // 如果图像比视图小，缩放到合适的大小（不超过原始大小）
+    // 首先检查是否需要考虑DPI缩放
+    if (m_devicePixelRatio > 1.0) {
+        // 计算反向缩放比例，使图像显示为实际大小
+        qreal inverseScale = 1.0 / m_devicePixelRatio;
+        
+        // 应用反向缩放变换
+        QTransform transform;
+        transform.scale(inverseScale, inverseScale);
+        m_graphicsView->setTransform(transform);
+        
+        // 将滑块设置为100%，表示这是实际尺寸
+        m_zoomSlider->setValue(100);
+        return;
+    }
+    
+    // 如果没有DPI缩放，或者DPI缩放为1，则按正常方式处理
     QRectF viewportRect = m_graphicsView->viewport()->rect();
     QRectF sceneRect = m_scene->sceneRect();
     
     if (sceneRect.width() < viewportRect.width() && sceneRect.height() < viewportRect.height()) {
         // 图像已经完全显示，不需要额外操作
+        m_zoomSlider->setValue(100);
     } else {
         // 计算合适的缩放比例，使图像适合视图
         qreal xScale = viewportRect.width() / sceneRect.width();
@@ -1469,6 +1558,8 @@ void ImageViewerDialog::resetZoom()
             QTransform transform;
             transform.scale(scale, scale);
             m_graphicsView->setTransform(transform);
+        } else {
+            m_zoomSlider->setValue(100);
         }
     }
 }

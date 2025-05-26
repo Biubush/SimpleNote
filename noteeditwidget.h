@@ -33,21 +33,24 @@ class ImageViewerDialog : public QDialog
     Q_OBJECT
     
 public:
-    explicit ImageViewerDialog(const QImage &image, QWidget *parent = nullptr);
+    explicit ImageViewerDialog(const QImage &image, qreal devicePixelRatio, QWidget *parent = nullptr);
+    
+private slots:
+    void updateZoom(int value);
+    void resetZoom();
     
 private:
-    QGraphicsView *m_graphicsView;
+    void setupUI();
+    void setupConnections();
+    
+    QImage m_originalImage;
     QGraphicsScene *m_scene;
+    QGraphicsView *m_graphicsView;
     QGraphicsPixmapItem *m_pixmapItem;
     QSlider *m_zoomSlider;
     QPushButton *m_resetButton;
     QPushButton *m_closeButton;
-    QImage m_originalImage;
-    
-    void setupUI();
-    void setupConnections();
-    void updateZoom(int value);
-    void resetZoom();
+    qreal m_devicePixelRatio;  // 设备像素比
 };
 
 // 图片项事件过滤器，处理图片的鼠标交互
