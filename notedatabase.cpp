@@ -6,14 +6,32 @@
 #include <QDateTime>
 #include <QStandardPaths>
 
+// 获取数据库存储目录的静态方法
+QString NoteDatabase::getDatabaseDir()
+{
+    // 获取应用数据存储位置
+    QString dataLocation = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    return dataLocation;
+}
+
+// 获取数据库文件路径的静态方法
+QString NoteDatabase::getDatabasePath()
+{
+    return getDatabaseDir() + "/notes.db";
+}
+
 NoteDatabase::NoteDatabase(QObject *parent) : QObject(parent), m_isOpen(false)
 {
-    // 设置数据库路径在程序当前目录下的database文件夹
-    QDir dir;
-    if (!dir.exists("database")) {
-        dir.mkdir("database");
+    // 获取并创建应用程序数据目录
+    QString dataDir = getDatabaseDir();
+    QDir dir(dataDir);
+    if (!dir.exists()) {
+        dir.mkpath(".");
     }
-    m_dbPath = QDir::currentPath() + "/database/notes.db";
+    
+    // 设置数据库路径
+    m_dbPath = getDatabasePath();
+    qDebug() << "数据库路径：" << m_dbPath;
     
     // 注册数据库连接
     m_db = QSqlDatabase::addDatabase("QSQLITE");

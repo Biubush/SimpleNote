@@ -26,12 +26,6 @@ MainWindow::MainWindow(QWidget *parent)
     // 设置默认编辑窗口属性，使其在主窗口关闭后仍保持显示
     m_noteEditWidget->setProperty("keepAlive", true);
     
-    // 创建数据库目录
-    QDir dir;
-    if (!dir.exists("database")) {
-        dir.mkdir("database");
-    }
-    
     // 设置界面和外观
     setupUI();
     setupAppearance();

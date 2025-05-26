@@ -1142,29 +1142,35 @@ void NoteEditWidget::adjustImagesInDocument()
 // 确保图片目录存在
 void NoteEditWidget::ensureImageDirectoryExists()
 {
+    // 获取应用数据目录
+    QString dataDir = NoteDatabase::getDatabaseDir();
+    
     // 创建主图片目录
-    QDir dir;
-    if (!dir.exists("database/images")) {
-        dir.mkpath("database/images");
+    QDir dir(dataDir);
+    if (!dir.exists("images")) {
+        dir.mkpath("images");
     }
     
     // 设置图片目录
-    m_imagesDir.setPath("database/images");
+    m_imagesDir.setPath(dataDir + "/images");
 }
 
 // 获取特定便签的图片目录
 QString NoteEditWidget::getImageDirectory(int noteId) const
 {
+    QString dataDir = NoteDatabase::getDatabaseDir();
+    
     if (noteId <= 0) {
-        return "database/images/temp";
+        return dataDir + "/images/temp";
     }
-    return QString("database/images/%1").arg(noteId);
+    return QString("%1/images/%2").arg(dataDir).arg(noteId);
 }
 
 // 处理内容中的图片引用，准备保存
 void NoteEditWidget::processContentForSaving()
 {
     QTextDocument *document = ui->contentTextEdit->document();
+    QString dataDir = NoteDatabase::getDatabaseDir();
     
     // 遍历文档中的所有文本块和片段，查找图片
     for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
@@ -1179,7 +1185,9 @@ void NoteEditWidget::processContentForSaving()
                     QString imageName = imageFormat.name();
                     
                     // 跳过已经保存的图片
-                    if (imageName.startsWith("file:///") || imageName.startsWith("database/images/")) {
+                    if (imageName.startsWith("file:///") || 
+                        imageName.startsWith(dataDir) ||
+                        imageName.contains("/images/")) {
                         continue;
                     }
                     
@@ -1222,6 +1230,7 @@ void NoteEditWidget::processContentAfterLoading()
 {
     QTextDocument *document = ui->contentTextEdit->document();
     bool documentModified = false;
+    QString dataDir = NoteDatabase::getDatabaseDir();
     
     // 获取设备像素比，处理Windows屏幕缩放问题
     qreal devicePixelRatio = qApp->devicePixelRatio();
@@ -1243,7 +1252,7 @@ void NoteEditWidget::processContentAfterLoading()
                     
                     // 检查是否是文件路径
                     if (imagePath.startsWith("file:///") || 
-                        imagePath.startsWith("database/images/") || 
+                        imagePath.contains("/images/") || 
                         QFile::exists(imagePath)) {
                         
                         // 加载图片
@@ -1260,8 +1269,16 @@ void NoteEditWidget::processContentAfterLoading()
                         
                         // 如果加载失败，尝试作为相对路径加载
                         if (!loaded && !QFile::exists(localPath)) {
+                            // 先尝试当前工作目录
                             QString alternatePath = QDir::currentPath() + "/" + localPath;
                             loaded = image.load(alternatePath);
+                            
+                            // 如果还是失败，尝试数据目录
+                            if (!loaded) {
+                                alternatePath = dataDir + "/" + QFileInfo(localPath).fileName();
+                                loaded = image.load(alternatePath);
+                            }
+                            
                             if (loaded) {
                                 localPath = alternatePath;
                             }

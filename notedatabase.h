@@ -23,6 +23,10 @@ public:
     Note getNote(int id);
     QList<Note> getAllNotes();
     QList<Note> searchNotes(const QString &keyword);
+    
+    // 获取数据库目录和路径的静态方法
+    static QString getDatabaseDir();
+    static QString getDatabasePath();
 
 private:
     bool createTables();
