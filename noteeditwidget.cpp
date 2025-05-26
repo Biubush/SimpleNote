@@ -273,8 +273,18 @@ void NoteEditWidget::setupConnections()
                     QUrl(filePath),
                     QVariant(image));
                 
+                // 计算显示尺寸，考虑设备像素比
+                int displayWidth = image.width() / image.devicePixelRatio();
+                int displayHeight = image.height() / image.devicePixelRatio();
+                
+                // 创建图片格式
+                QTextImageFormat imageFormat;
+                imageFormat.setName(filePath);
+                imageFormat.setWidth(displayWidth);
+                imageFormat.setHeight(displayHeight);
+                
                 // 插入图片到光标位置
-                ui->contentTextEdit->textCursor().insertImage(filePath);
+                ui->contentTextEdit->textCursor().insertImage(imageFormat);
                 
                 // 记录临时图片映射
                 m_tempImages[imageName] = filePath;
@@ -733,11 +743,53 @@ bool NoteEditWidget::eventFilter(QObject *obj, QEvent *event)
                     }
                 }
                 
-                if (!originalImage.isNull()) {
-                    // 显示图片查看器
-                    showImageViewer(originalImage);
-                    return true; // 事件已处理
+                // 获取图片在文档中的位置和大小信息
+                QTextBlock block = cursor.block();
+                QTextBlock::iterator it;
+                
+                // 查找图片在文本块中的位置
+                bool foundImage = false;
+                QRect imageRect;
+                for (it = block.begin(); it != block.end() && !foundImage; ++it) {
+                    QTextFragment fragment = it.fragment();
+                    if (fragment.isValid()) {
+                        QTextCharFormat fragFormat = fragment.charFormat();
+                        if (fragFormat.isImageFormat()) {
+                            QTextImageFormat imgFormat = fragFormat.toImageFormat();
+                            if (imgFormat.name() == imagePath) {
+                                // 获取图片在文档中的位置
+                                int fragmentPosition = fragment.position();
+                                QTextCursor imgCursor(ui->contentTextEdit->document());
+                                imgCursor.setPosition(fragmentPosition);
+                                QRect imgRect = ui->contentTextEdit->cursorRect(imgCursor);
+                                
+                                // 获取图片的宽高
+                                int imgWidth = imgFormat.width();
+                                int imgHeight = imgFormat.height();
+                                
+                                // 构建图片的实际矩形区域
+                                imageRect = QRect(imgRect.left(), imgRect.top(), imgWidth, imgHeight);
+                                foundImage = true;
+                                break;
+                            }
+                        }
+                    }
                 }
+                
+                // 如果找到了图片，并且点击位置在图片的实际区域内
+                if (foundImage) {
+                    QPoint viewportPos = mouseEvent->pos();
+                    if (imageRect.contains(viewportPos)) {
+                        if (!originalImage.isNull()) {
+                            // 显示图片查看器
+                            showImageViewer(originalImage);
+                            return true; // 事件已处理
+                        }
+                    }
+                }
+                
+                // 如果点击位置不在图片的实际区域内，或者找不到图片，让事件继续传递，允许在图片周围编辑文本
+                return false;
             }
         }
         else if (event->type() == QEvent::MouseMove) {
@@ -747,9 +799,51 @@ bool NoteEditWidget::eventFilter(QObject *obj, QEvent *event)
             // 检查光标位置是否在图片上
             QTextCharFormat format = cursor.charFormat();
             if (format.isImageFormat()) {
-                // 设置手型光标
-                ui->contentTextEdit->viewport()->setCursor(Qt::PointingHandCursor);
-                return true; // 事件已处理
+                QTextImageFormat imageFormat = format.toImageFormat();
+                QString imagePath = imageFormat.name();
+                
+                // 获取图片在文档中的位置和大小信息
+                QTextBlock block = cursor.block();
+                QTextBlock::iterator it;
+                
+                // 查找图片在文本块中的位置
+                bool foundImage = false;
+                QRect imageRect;
+                for (it = block.begin(); it != block.end() && !foundImage; ++it) {
+                    QTextFragment fragment = it.fragment();
+                    if (fragment.isValid()) {
+                        QTextCharFormat fragFormat = fragment.charFormat();
+                        if (fragFormat.isImageFormat()) {
+                            QTextImageFormat imgFormat = fragFormat.toImageFormat();
+                            if (imgFormat.name() == imagePath) {
+                                // 获取图片在文档中的位置
+                                int fragmentPosition = fragment.position();
+                                QTextCursor imgCursor(ui->contentTextEdit->document());
+                                imgCursor.setPosition(fragmentPosition);
+                                QRect imgRect = ui->contentTextEdit->cursorRect(imgCursor);
+                                
+                                // 获取图片的宽高
+                                int imgWidth = imgFormat.width();
+                                int imgHeight = imgFormat.height();
+                                
+                                // 构建图片的实际矩形区域
+                                imageRect = QRect(imgRect.left(), imgRect.top(), imgWidth, imgHeight);
+                                foundImage = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // 如果找到了图片，并且鼠标位置在图片的实际区域内
+                if (foundImage && imageRect.contains(mouseEvent->pos())) {
+                    // 设置手型光标
+                    ui->contentTextEdit->viewport()->setCursor(Qt::PointingHandCursor);
+                    return true; // 事件已处理
+                } else {
+                    // 恢复默认光标
+                    ui->contentTextEdit->viewport()->setCursor(Qt::IBeamCursor);
+                }
             } else {
                 // 恢复默认光标
                 ui->contentTextEdit->viewport()->setCursor(Qt::IBeamCursor);
@@ -777,10 +871,19 @@ QImage NoteEditWidget::resizeImageToFitWidth(const QImage &image)
     
     // 如果图片宽度超过可用宽度，则按比例缩放
     if (image.width() > availableWidth) {
-        return image.scaled(availableWidth, 
-                          (availableWidth * image.height()) / image.width(),
-                          Qt::KeepAspectRatio, 
-                          Qt::SmoothTransformation);
+        // 计算缩放后的实际像素尺寸，考虑设备像素比
+        int scaledWidth = availableWidth * devicePixelRatio;
+        int scaledHeight = (scaledWidth * image.height()) / image.width();
+        
+        // 使用高质量缩放创建高清图像
+        QImage scaledImage = image.scaled(scaledWidth, scaledHeight, 
+                                         Qt::KeepAspectRatio, 
+                                         Qt::SmoothTransformation);
+        
+        // 设置设备像素比，这样逻辑尺寸会自动调整
+        scaledImage.setDevicePixelRatio(devicePixelRatio);
+        
+        return scaledImage;
     }
     
     // 如果图片实际尺寸不超过可用宽度，考虑设备像素比
@@ -861,8 +964,18 @@ bool NoteEditWidget::insertImageFromClipboard()
                 QUrl(filePath),
                 QVariant(image));
             
+            // 计算显示尺寸，考虑设备像素比
+            int displayWidth = image.width() / image.devicePixelRatio();
+            int displayHeight = image.height() / image.devicePixelRatio();
+            
+            // 创建图片格式
+            QTextImageFormat imageFormat;
+            imageFormat.setName(filePath);
+            imageFormat.setWidth(displayWidth);
+            imageFormat.setHeight(displayHeight);
+            
             // 插入图片到光标位置
-            ui->contentTextEdit->textCursor().insertImage(filePath);
+            ui->contentTextEdit->textCursor().insertImage(imageFormat);
             
             // 记录临时图片映射
             m_tempImages[imageName] = filePath;
@@ -992,14 +1105,8 @@ void NoteEditWidget::adjustImagesInDocument()
                             QVariant(resizedImage));
                         
                         // 计算显示尺寸，考虑设备像素比
-                        int displayWidth = resizedImage.width();
-                        int displayHeight = resizedImage.height();
-                        
-                        // 如果原始图片宽度小于可用宽度，需要考虑设备像素比
-                        if (originalImage.width() <= availableWidth && devicePixelRatio > 1.0) {
-                            displayWidth = qRound(resizedImage.width() / devicePixelRatio);
-                            displayHeight = qRound(resizedImage.height() / devicePixelRatio);
-                        }
+                        int displayWidth = resizedImage.width() / resizedImage.devicePixelRatio();
+                        int displayHeight = resizedImage.height() / resizedImage.devicePixelRatio();
                         
                         // 更新图片宽度和高度
                         if (imageFormat.width() != displayWidth || 
@@ -1174,14 +1281,8 @@ void NoteEditWidget::processContentAfterLoading()
                                 QVariant(resizedImage));
                             
                             // 计算显示尺寸，考虑设备像素比
-                            int displayWidth = resizedImage.width();
-                            int displayHeight = resizedImage.height();
-                            
-                            // 如果原始图片宽度小于可用宽度，需要考虑设备像素比
-                            if (image.width() <= availableWidth && devicePixelRatio > 1.0) {
-                                displayWidth = qRound(resizedImage.width() / devicePixelRatio);
-                                displayHeight = qRound(resizedImage.height() / devicePixelRatio);
-                            }
+                            int displayWidth = resizedImage.width() / resizedImage.devicePixelRatio();
+                            int displayHeight = resizedImage.height() / resizedImage.devicePixelRatio();
                             
                             // 更新图片的宽度和高度属性
                             if (imageFormat.width() != displayWidth || 
