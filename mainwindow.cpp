@@ -14,6 +14,9 @@
 #include <QSizePolicy>
 #include <QTimer>
 #include <QDateTime>
+#include <QSqlDatabase>
+#include <QThread>
+#include <QCoreApplication>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -344,6 +347,12 @@ void MainWindow::exportDatabase()
     // 关闭数据库连接
     m_database->close();
     
+    // 完全移除数据库连接，确保释放文件锁定
+    QSqlDatabase::removeDatabase(QSqlDatabase::defaultConnection);
+    
+    // 等待短暂时间确保文件完全释放
+    QThread::msleep(500);
+    
     // 获取数据库目录
     QString dbDir = NoteDatabase::getDatabaseDir();
     
@@ -377,24 +386,99 @@ void MainWindow::exportDatabase()
     
     // 创建一个定时器，用于在对话框显示后启动导出过程
     QTimer::singleShot(200, this, [this, dbDir, savePath, &progressMsg]() {
+        bool success = false;
         // 使用Qt内置的压缩功能创建一个压缩包
         QProcess zipProcess;
         
     #ifdef Q_OS_WIN
         // Windows平台使用PowerShell的压缩命令
+        // 确保同时包含数据库文件和images文件夹
         QString command = "powershell.exe";
         QStringList args;
-        args << "-Command" << QString("Compress-Archive -Path \"%1\\*\" -DestinationPath \"%2\" -Force").arg(dbDir, savePath);
+        
+        // 创建临时目录用于存放要压缩的文件
+        QString tempDir = QDir::tempPath() + "/SimpleNoteTemp_" + QDateTime::currentDateTime().toString("yyyyMMddHHmmss");
+        
+        // 构建PowerShell命令：创建临时目录，复制文件到临时目录，压缩，然后清理
+        args << "-Command" << QString(
+            "try {\n"
+            "    # 创建临时目录\n"
+            "    if (!(Test-Path -Path \"%1\")) { New-Item -Path \"%1\" -ItemType Directory -Force }\n"
+            "    \n"
+            "    # 复制数据库文件到临时目录（如果存在）\n"
+            "    if (Test-Path -Path \"%2\\notes.db\") { \n"
+            "        Copy-Item -Path \"%2\\notes.db\" -Destination \"%1\\\" -Force\n"
+            "    }\n"
+            "    \n"
+            "    # 复制图片文件夹到临时目录（如果存在）\n"
+            "    if (Test-Path -Path \"%2\\images\") { \n"
+            "        Copy-Item -Path \"%2\\images\" -Destination \"%1\\\" -Recurse -Force\n"
+            "    }\n"
+            "    \n"
+            "    # 检查临时目录是否为空\n"
+            "    if (@(Get-ChildItem -Path \"%1\" -Force).Count -gt 0) {\n"
+            "        # 压缩临时目录的内容\n"
+            "        Compress-Archive -Path \"%1\\*\" -DestinationPath \"%3\" -Force\n"
+            "    } else {\n"
+            "        Write-Error \"No files found to export\"\n"
+            "        exit 1\n"
+            "    }\n"
+            "    \n"
+            "    # 清理临时目录\n"
+            "    if (Test-Path -Path \"%1\") { \n"
+            "        Remove-Item -Path \"%1\" -Recurse -Force\n"
+            "    }\n"
+            "    \n"
+            "    exit 0\n"
+            "} catch {\n"
+            "    Write-Error $_.Exception.Message\n"
+            "    exit 1\n"
+            "}\n"
+        ).arg(tempDir, dbDir, savePath);
     #else
         // Linux/Mac平台使用zip命令
-        QString command = "zip";
+        QString command = "bash";
         QStringList args;
-        args << "-r" << savePath << ".";
-        zipProcess.setWorkingDirectory(dbDir);
+        
+        // 创建临时脚本文件来执行命令
+        QString scriptPath = QDir::tempPath() + "/simplenote_export.sh";
+        QFile script(scriptPath);
+        if (script.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&script);
+            out << "#!/bin/bash\n"
+                << "set -e\n"  // 出错时立即退出
+                << "# 当前工作目录\n"
+                << "cd \"" << dbDir << "\"\n"
+                << "# 检查文件是否存在\n"
+                << "if [ ! -f \"notes.db\" ] && [ ! -d \"images\" ]; then\n"
+                << "    echo \"No files found to export\"\n"
+                << "    exit 1\n"
+                << "fi\n"
+                << "# 创建压缩包\n"
+                << "zip -r \"" << savePath << "\" notes.db images -q\n";
+            script.close();
+            
+            QFile::setPermissions(scriptPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+            args << scriptPath;
+        } else {
+            // 如果无法创建脚本文件，显示错误
+            QMessageBox::warning(this, "导出失败", "无法创建临时脚本文件。");
+            progressMsg.done(0);
+            // 重新打开数据库
+            m_database->open();
+            return;
+        }
     #endif
         
         zipProcess.start(command, args);
         zipProcess.waitForFinished(-1);
+        
+        // 清理临时脚本文件
+    #ifndef Q_OS_WIN
+        if (QFile::exists(scriptPath)) {
+            QFile::remove(scriptPath);
+        }
+    #endif
         
         // 关闭进度对话框
         progressMsg.done(0);
@@ -404,6 +488,7 @@ void MainWindow::exportDatabase()
         
         if (zipProcess.exitCode() == 0) {
             QMessageBox::information(this, "导出成功", "便签数据已成功导出至:\n" + savePath);
+            success = true;
         } else {
             QMessageBox::warning(this, "导出失败", "无法导出便签数据。\n错误信息: " + 
                                 QString(zipProcess.readAllStandardError()));
@@ -419,7 +504,7 @@ void MainWindow::importDatabase()
     // 提示用户注意事项
     QMessageBox::StandardButton reply = QMessageBox::question(this, 
         "导入便签数据", 
-        "导入操作将覆盖当前的便签数据。\n是否继续？",
+        "导入操作将覆盖当前的便签数据。导入成功后程序将自动重启。\n是否继续？",
         QMessageBox::Yes | QMessageBox::No);
         
     if (reply != QMessageBox::Yes) {
@@ -435,12 +520,20 @@ void MainWindow::importDatabase()
         return;
     }
     
+    // 保存当前程序路径，用于导入后重启
+    QString appPath = QCoreApplication::applicationFilePath();
+    QStringList appArgs = QCoreApplication::arguments();
+    appArgs.removeFirst(); // 移除程序路径参数
+    
     // 关闭数据库连接和所有打开的便签窗口
     m_database->close();
     closeAllNoteWindows();
     
     // 获取数据库目录
     QString dbDir = NoteDatabase::getDatabaseDir();
+    
+    // 创建临时目录用于解压文件
+    QString tempDir = QDir::tempPath() + "/SimpleNoteImportTemp_" + QDateTime::currentDateTime().toString("yyyyMMddHHmmss");
     
     // 显示进度对话框
     QMessageBox progressMsg(this);
@@ -450,52 +543,140 @@ void MainWindow::importDatabase()
     progressMsg.setIcon(QMessageBox::Information);
     
     // 创建一个定时器，用于在对话框显示后启动导入过程
-    QTimer::singleShot(200, this, [this, dbDir, importPath, &progressMsg]() {
-        // 使用系统命令解压文件
+    QTimer::singleShot(200, this, [this, dbDir, tempDir, importPath, appPath, appArgs, &progressMsg]() {
+        bool success = false;
         QProcess unzipProcess;
         
     #ifdef Q_OS_WIN
-        // Windows平台使用PowerShell的解压命令
+        // Windows平台使用PowerShell的解压命令，先解压到临时目录
         QString command = "powershell.exe";
         QStringList args;
         
-        // 先删除目标目录中的所有文件
-        args << "-Command" << QString("if (Test-Path \"%1\") { Remove-Item -Path \"%1\\*\" -Recurse -Force -ErrorAction SilentlyContinue }; Expand-Archive -Path \"%2\" -DestinationPath \"%1\" -Force")
-                            .arg(dbDir, importPath);
-    #else
-        // Linux/Mac平台使用unzip命令
-        QString command = "unzip";
-        QStringList args;
-        args << "-o" << importPath << "-d" << dbDir;
-    #endif
+        // 确保临时目录存在
+        args << "-Command" << QString("if (!(Test-Path -Path \"%1\")) { New-Item -Path \"%1\" -ItemType Directory -Force }").arg(tempDir);
+        unzipProcess.start(command, args);
+        unzipProcess.waitForFinished(-1);
+        
+        // 解压文件到临时目录
+        args.clear();
+        args << "-Command" << QString(
+            "Add-Type -AssemblyName System.IO.Compression.FileSystem;\n"
+            "try {\n"
+            "    [System.IO.Compression.ZipFile]::ExtractToDirectory(\"%1\", \"%2\");\n"
+            "    exit 0;\n"
+            "} catch {\n"
+            "    Write-Error $_.Exception.Message;\n"
+            "    exit 1;\n"
+            "}"
+        ).arg(importPath, tempDir);
         
         unzipProcess.start(command, args);
         unzipProcess.waitForFinished(-1);
         
+        // 检查解压是否成功
+        if (unzipProcess.exitCode() == 0) {
+            // 确保数据库已完全关闭和释放
+            QSqlDatabase::removeDatabase(QSqlDatabase::defaultConnection);
+            
+            // 等待一小段时间，确保文件解锁
+            QThread::msleep(500);
+            
+            // 复制解压的文件到目标位置
+            args.clear();
+            args << "-Command" << QString(
+                "# 确保目标目录存在\n"
+                "if (!(Test-Path -Path \"%1\")) { New-Item -Path \"%1\" -ItemType Directory -Force }\n"
+                
+                "# 删除目标位置的旧文件\n"
+                "if (Test-Path -Path \"%1\\notes.db\") { Remove-Item -Path \"%1\\notes.db\" -Force -ErrorAction SilentlyContinue }\n"
+                "if (Test-Path -Path \"%1\\images\") { Remove-Item -Path \"%1\\images\" -Recurse -Force -ErrorAction SilentlyContinue }\n"
+                
+                "# 复制新文件\n"
+                "if (Test-Path -Path \"%2\\notes.db\") { Copy-Item -Path \"%2\\notes.db\" -Destination \"%1\" -Force }\n"
+                "if (Test-Path -Path \"%2\\images\") { Copy-Item -Path \"%2\\images\" -Destination \"%1\" -Recurse -Force }\n"
+                
+                "# 清理临时目录\n"
+                "if (Test-Path -Path \"%2\") { Remove-Item -Path \"%2\" -Recurse -Force -ErrorAction SilentlyContinue }"
+            ).arg(dbDir, tempDir);
+            
+            unzipProcess.start(command, args);
+            unzipProcess.waitForFinished(-1);
+            success = (unzipProcess.exitCode() == 0);
+        }
+    #else
+        // Linux/Mac平台使用unzip命令
+        QString command = "bash";
+        QStringList args;
+        
+        // 创建一个临时脚本文件来执行命令
+        QString scriptPath = QDir::tempPath() + "/simplenote_import.sh";
+        QFile script(scriptPath);
+        if (script.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&script);
+            out << "#!/bin/bash\n"
+                << "set -e\n"  // 出错时立即退出
+                << "# 创建临时解压目录\n"
+                << "mkdir -p \"" << tempDir << "\"\n"
+                << "# 解压到临时目录\n"
+                << "unzip -o \"" << importPath << "\" -d \"" << tempDir << "\"\n"
+                << "# 确保目标目录存在\n"
+                << "mkdir -p \"" << dbDir << "\"\n"
+                << "# 删除目标位置的旧文件\n"
+                << "rm -f \"" << dbDir << "/notes.db\"\n"
+                << "rm -rf \"" << dbDir << "/images\"\n"
+                << "# 复制新文件\n"
+                << "if [ -f \"" << tempDir << "/notes.db\" ]; then\n"
+                << "    cp -f \"" << tempDir << "/notes.db\" \"" << dbDir << "/\"\n"
+                << "fi\n"
+                << "if [ -d \"" << tempDir << "/images\" ]; then\n"
+                << "    cp -rf \"" << tempDir << "/images\" \"" << dbDir << "/\"\n"
+                << "fi\n"
+                << "# 清理临时目录\n"
+                << "rm -rf \"" << tempDir << "\"\n";
+            script.close();
+            
+            QFile::setPermissions(scriptPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+            args << scriptPath;
+            
+            // 确保数据库已完全关闭和释放
+            QSqlDatabase::removeDatabase(QSqlDatabase::defaultConnection);
+            
+            // 等待一小段时间，确保文件解锁
+            QThread::msleep(500);
+            
+            unzipProcess.start(command, args);
+            unzipProcess.waitForFinished(-1);
+            success = (unzipProcess.exitCode() == 0);
+            
+            // 清理临时脚本文件
+            QFile::remove(scriptPath);
+        } else {
+            // 如果无法创建脚本文件，显示错误
+            QMessageBox::warning(this, "导入失败", "无法创建临时脚本文件。");
+        }
+    #endif
+        
         // 关闭进度对话框
         progressMsg.done(0);
         
-        bool success = false;
-        
-        if (unzipProcess.exitCode() == 0) {
-            // 重新打开数据库
-            if (m_database->open()) {
-                // 刷新便签列表
-                m_noteListWidget->refreshNoteList();
-                QMessageBox::information(this, "导入成功", "便签数据已成功导入。");
-                success = true;
-            } else {
-                QMessageBox::warning(this, "导入后出错", "便签数据已导入，但无法重新打开数据库。");
-            }
+        // 如果导入成功，重启应用
+        if (success) {
+            QMessageBox::information(this, "导入成功", "便签数据已成功导入。程序将自动重启以应用更改。");
+            
+            // 启动新实例
+            QProcess::startDetached(appPath, appArgs);
+            
+            // 关闭当前实例
+            QCoreApplication::quit();
         } else {
+            // 重新打开数据库
+            if (!m_database->isOpen()) {
+                m_database->open();
+                m_noteListWidget->refreshNoteList();
+            }
+            
             QMessageBox::warning(this, "导入失败", "无法导入便签数据。\n错误信息: " + 
-                                QString(unzipProcess.readAllStandardError()));
-        }
-        
-        // 如果导入失败，尝试重新打开原数据库
-        if (!success && !m_database->isOpen()) {
-            m_database->open();
-            m_noteListWidget->refreshNoteList();
+                               QString(unzipProcess.readAllStandardError()));
         }
     });
     
