@@ -50,6 +50,7 @@ private:
     void setupConnections();
     void setupAppearance();
     void setupToolBar();
+    void setupMessageBoxStyle();
     
     void openOrActivateNoteWindow(const Note &note);
     void closeAllNoteWindows();

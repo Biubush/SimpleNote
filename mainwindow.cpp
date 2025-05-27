@@ -40,6 +40,7 @@ MainWindow::MainWindow(QWidget *parent)
     setupUI();
     setupAppearance();
     setupToolBar();
+    setupMessageBoxStyle(); // 设置消息框样式
     
     // 打开数据库
     if (!m_database->open()) {
@@ -682,4 +683,34 @@ void MainWindow::importDatabase()
     
     // 显示进度对话框（会阻塞直到done被调用）
     progressMsg.exec();
+}
+
+// 设置全局MessageBox样式
+void MainWindow::setupMessageBoxStyle()
+{
+    // 创建一个全局样式表，应用于所有QMessageBox
+    QString messageBoxStyle = 
+        "QMessageBox {"
+        "  background-color: #F5F5F5;"
+        "}"
+        "QMessageBox QPushButton {"
+        "  min-width: 80px;"
+        "  min-height: 24px;"
+        "  border: 1px solid #CCCCCC;"
+        "  border-radius: 3px;"
+        "  padding: 5px;"
+        "  background-color: #FFFFFF;"
+        "}"
+        "QMessageBox QPushButton:hover {"
+        "  background-color: #E0E0E0;"
+        "}"
+        "QMessageBox QPushButton:pressed {"
+        "  background-color: #D0D0D0;"
+        "}"
+        "QMessageBox QLabel {"
+        "  color: #333333;"
+        "}";
+    
+    // 应用样式
+    qApp->setStyleSheet(qApp->styleSheet() + messageBoxStyle);
 }
