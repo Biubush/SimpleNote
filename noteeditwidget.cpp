@@ -590,6 +590,17 @@ void NoteEditWidget::onDeleteButtonClicked()
         
         // 从数据库中删除
         if (m_database->deleteNote(noteId)) {
+            // 删除便签对应的图片文件夹
+            QString imageDirPath = getImageDirectory(noteId);
+            if (!imageDirPath.isEmpty()) {
+                QDir imageDir(imageDirPath);
+                if (imageDir.exists()) {
+                    // 递归删除目录及其内容
+                    imageDir.removeRecursively();
+                    qDebug() << "已删除便签图片目录:" << imageDirPath;
+                }
+            }
+            
             // 发送删除信号
             emit noteDeleted(noteId);
             
