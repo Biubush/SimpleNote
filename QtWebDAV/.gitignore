@@ -1,0 +1,4 @@
+.idea
+cmake-build-*
+*.pro.user
+CMakeLists.txt.user

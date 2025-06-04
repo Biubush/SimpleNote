@@ -17,6 +17,7 @@
 #include <QSqlDatabase>
 #include <QThread>
 #include <QCoreApplication>
+#include "webdavconfigdialog.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -25,6 +26,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_noteEditWidget(new NoteEditWidget(nullptr)) // 保持编辑器独立，不设父窗口
     , m_database(new NoteDatabase(this))
     , m_toolBar(nullptr)
+    , m_webdavSyncManager(new WebDAVSyncManager(this))
 {
     ui->setupUi(this);
     
@@ -46,6 +48,9 @@ MainWindow::MainWindow(QWidget *parent)
     if (!m_database->open()) {
         QMessageBox::warning(this, "错误", "无法打开数据库");
     }
+    
+    // 设置WebDAV同步
+    setupWebDAVSync();
     
     // 设置窗口标题
     setWindowTitle("便签");
@@ -138,17 +143,32 @@ void MainWindow::setupToolBar()
     m_exportAction = new QAction(QIcon::fromTheme("document-save", QApplication::style()->standardIcon(QStyle::SP_DialogSaveButton)), "", this);
     m_importAction = new QAction(QIcon::fromTheme("document-open", QApplication::style()->standardIcon(QStyle::SP_DialogOpenButton)), "", this);
     
+    // 创建WebDAV配置和同步按钮
+    m_webdavConfigAction = new QAction(QIcon::fromTheme("network-server", QApplication::style()->standardIcon(QStyle::SP_ComputerIcon)), "", this);
+    m_syncAction = new QAction(QIcon::fromTheme("view-refresh", QApplication::style()->standardIcon(QStyle::SP_BrowserReload)), "", this);
+    
     // 设置图标为自动使用系统主题颜色
     m_exportAction->setProperty("iconVisibleInMenu", true);
     m_importAction->setProperty("iconVisibleInMenu", true);
+    m_webdavConfigAction->setProperty("iconVisibleInMenu", true);
+    m_syncAction->setProperty("iconVisibleInMenu", true);
     
     // 设置提示文本
     m_exportAction->setToolTip("导出便签数据");
     m_importAction->setToolTip("导入便签数据");
+    m_webdavConfigAction->setToolTip("WebDAV云同步设置");
+    m_syncAction->setToolTip("立即同步");
     
     // 添加到工具栏
     m_toolBar->addAction(m_exportAction);
     m_toolBar->addAction(m_importAction);
+    
+    // 添加一个分隔符
+    m_toolBar->addSeparator();
+    
+    // 添加WebDAV相关按钮
+    m_toolBar->addAction(m_webdavConfigAction);
+    m_toolBar->addAction(m_syncAction);
     
     // 添加一个伸缩项，将按钮推到工具栏右侧
     QWidget* spacer = new QWidget();
@@ -161,6 +181,11 @@ void MainWindow::setupToolBar()
     // 连接信号和槽
     connect(m_exportAction, &QAction::triggered, this, &MainWindow::exportDatabase);
     connect(m_importAction, &QAction::triggered, this, &MainWindow::importDatabase);
+    connect(m_webdavConfigAction, &QAction::triggered, this, &MainWindow::showWebDAVConfigDialog);
+    connect(m_syncAction, &QAction::triggered, this, &MainWindow::manualSync);
+    
+    // 默认禁用同步按钮，需要先配置WebDAV
+    m_syncAction->setEnabled(false);
 }
 
 void MainWindow::setupConnections()
@@ -179,6 +204,12 @@ void MainWindow::setupConnections()
     
     // 当默认编辑窗口关闭时处理
     connect(m_noteEditWidget, &NoteEditWidget::closed, this, &MainWindow::onEditWindowClosed);
+    
+    // WebDAV同步管理器连接
+    connect(m_webdavSyncManager, &WebDAVSyncManager::syncStatusChanged, this, &MainWindow::onSyncStatusChanged);
+    connect(m_webdavSyncManager, &WebDAVSyncManager::syncProgress, this, &MainWindow::onSyncProgress);
+    connect(m_webdavSyncManager, &WebDAVSyncManager::syncFinished, this, &MainWindow::onSyncFinished);
+    connect(m_webdavSyncManager, &WebDAVSyncManager::syncError, this, &MainWindow::onSyncError);
 }
 
 void MainWindow::onNoteSelected(const Note &note)
@@ -713,4 +744,95 @@ void MainWindow::setupMessageBoxStyle()
     
     // 应用样式
     qApp->setStyleSheet(qApp->styleSheet() + messageBoxStyle);
+}
+
+void MainWindow::setupWebDAVSync()
+{
+    // 设置数据库给同步管理器
+    m_webdavSyncManager->setDatabase(m_database);
+    
+    // 加载WebDAV配置
+    m_webdavSyncManager->loadConfig();
+    
+    // 根据配置状态更新同步按钮
+    m_syncAction->setEnabled(m_webdavSyncManager->isConfigured());
+}
+
+void MainWindow::showWebDAVConfigDialog()
+{
+    // 创建并显示WebDAV配置对话框
+    WebDAVConfigDialog dialog(this);
+    dialog.setSyncManager(m_webdavSyncManager);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        // 如果配置成功，启用同步按钮
+        m_syncAction->setEnabled(m_webdavSyncManager->isConfigured());
+    }
+}
+
+void MainWindow::manualSync()
+{
+    if (!m_webdavSyncManager->isConfigured()) {
+        QMessageBox::warning(this, tr("同步错误"), tr("请先配置WebDAV服务器"));
+        return;
+    }
+    
+    // 开始同步
+    m_webdavSyncManager->startSync();
+}
+
+void MainWindow::onSyncStatusChanged(WebDAVSyncManager::SyncStatus status)
+{
+    // 根据同步状态更新UI
+    switch (status) {
+    case WebDAVSyncManager::Syncing:
+        statusBar()->showMessage(tr("正在同步..."));
+        m_syncAction->setEnabled(false);
+        break;
+    case WebDAVSyncManager::Idle:
+        statusBar()->showMessage(tr("同步就绪"), 5000);
+        m_syncAction->setEnabled(true);
+        break;
+    case WebDAVSyncManager::Error:
+        statusBar()->showMessage(tr("同步错误"), 5000);
+        m_syncAction->setEnabled(true);
+        break;
+    case WebDAVSyncManager::NotConfigured:
+        statusBar()->showMessage(tr("WebDAV未配置"), 5000);
+        m_syncAction->setEnabled(false);
+        break;
+    }
+}
+
+void MainWindow::onSyncProgress(int percent, const QString &message)
+{
+    // 显示同步进度
+    statusBar()->showMessage(tr("同步: %1% - %2").arg(percent).arg(message));
+}
+
+void MainWindow::onSyncFinished(bool success)
+{
+    if (success) {
+        statusBar()->showMessage(tr("同步完成"), 5000);
+        
+        // 刷新便签列表，显示新同步的便签（如果有）
+        m_noteListWidget->refreshNoteList();
+    } else {
+        statusBar()->showMessage(tr("同步失败"), 5000);
+    }
+    
+    // 重新启用同步按钮
+    m_syncAction->setEnabled(true);
+}
+
+void MainWindow::onSyncError(const QString &error)
+{
+    // 显示错误信息
+    statusBar()->showMessage(tr("同步错误: %1").arg(error), 5000);
+    
+    // 可以考虑用更明显的方式显示错误
+    QMessageBox::warning(this, tr("同步错误"), error);
+    
+    // 重新启用同步按钮
+    m_syncAction->setEnabled(true);
 }

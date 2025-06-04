@@ -23,25 +23,33 @@ CODECFORSRC = UTF-8
 win32:RC_FILE = SimpleNote.rc
 win32:RC_CODEPAGE = 65001
 
+# 包含QtWebDAV库
+include(QtWebDAV/QtWebDAV.pri)
+
 SOURCES += \
     main.cpp \
     mainwindow.cpp \
     note.cpp \
     noteeditwidget.cpp \
     notedatabase.cpp \
-    notelistwidget.cpp
+    notelistwidget.cpp \
+    webdavconfigdialog.cpp \
+    webdavsyncmanager.cpp
 
 HEADERS += \
     mainwindow.h \
     note.h \
     noteeditwidget.h \
     notedatabase.h \
-    notelistwidget.h
+    notelistwidget.h \
+    webdavconfigdialog.h \
+    webdavsyncmanager.h
 
 FORMS += \
     mainwindow.ui \
     noteeditwidget.ui \
-    notelistwidget.ui
+    notelistwidget.ui \
+    webdavconfigdialog.ui
 
 RESOURCES += \
     resources.qrc
