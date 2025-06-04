@@ -431,6 +431,9 @@ void MainWindow::exportDatabase()
         // 创建临时目录用于存放要压缩的文件
         QString tempDir = QDir::tempPath() + "/SimpleNoteTemp_" + QDateTime::currentDateTime().toString("yyyyMMddHHmmss");
         
+        // 备份WebDAV配置到临时目录
+        bool webDAVConfigBacked = WebDAVSyncManager::backupConfig(tempDir);
+        
         // 构建PowerShell命令：创建临时目录，复制文件到临时目录，压缩，然后清理
         args << "-Command" << QString(
             "try {\n"
@@ -475,19 +478,36 @@ void MainWindow::exportDatabase()
         // 创建临时脚本文件来执行命令
         QString scriptPath = QDir::tempPath() + "/simplenote_export.sh";
         QFile script(scriptPath);
+        
+        // 创建临时目录用于存放要压缩的文件
+        QString tempDir = QDir::tempPath() + "/SimpleNoteTemp_" + QDateTime::currentDateTime().toString("yyyyMMddHHmmss");
+        
+        // 备份WebDAV配置到临时目录
+        bool webDAVConfigBacked = WebDAVSyncManager::backupConfig(tempDir);
+        
         if (script.open(QIODevice::WriteOnly | QIODevice::Text)) {
             QTextStream out(&script);
             out << "#!/bin/bash\n"
                 << "set -e\n"  // 出错时立即退出
-                << "# 当前工作目录\n"
-                << "cd \"" << dbDir << "\"\n"
-                << "# 检查文件是否存在\n"
-                << "if [ ! -f \"notes.db\" ] && [ ! -d \"images\" ]; then\n"
+                << "# 创建临时目录\n"
+                << "mkdir -p \"" << tempDir << "\"\n"
+                << "# 复制数据库文件和图片到临时目录\n"
+                << "if [ -f \"" << dbDir << "/notes.db\" ]; then\n"
+                << "    cp \"" << dbDir << "/notes.db\" \"" << tempDir << "/\"\n"
+                << "fi\n"
+                << "if [ -d \"" << dbDir << "/images\" ]; then\n"
+                << "    cp -r \"" << dbDir << "/images\" \"" << tempDir << "/\"\n"
+                << "fi\n"
+                << "# 检查临时目录是否为空\n"
+                << "if [ -z \"$(ls -A \"" << tempDir << "\")\" ]; then\n"
                 << "    echo \"No files found to export\"\n"
                 << "    exit 1\n"
                 << "fi\n"
                 << "# 创建压缩包\n"
-                << "zip -r \"" << savePath << "\" notes.db images -q\n";
+                << "cd \"" << tempDir << "\"\n"
+                << "zip -r \"" << savePath << "\" * -q\n"
+                << "# 清理临时目录\n"
+                << "rm -rf \"" << tempDir << "\"\n";
             script.close();
             
             QFile::setPermissions(scriptPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
@@ -613,6 +633,9 @@ void MainWindow::importDatabase()
             // 等待一小段时间，确保文件解锁
             QThread::msleep(500);
             
+            // 从临时目录还原WebDAV配置文件
+            WebDAVSyncManager::restoreConfig(tempDir);
+            
             // 复制解压的文件到目标位置
             args.clear();
             args << "-Command" << QString(
@@ -675,6 +698,9 @@ void MainWindow::importDatabase()
             
             // 等待一小段时间，确保文件解锁
             QThread::msleep(500);
+            
+            // 从临时目录还原WebDAV配置文件
+            WebDAVSyncManager::restoreConfig(tempDir);
             
             unzipProcess.start(command, args);
             unzipProcess.waitForFinished(-1);

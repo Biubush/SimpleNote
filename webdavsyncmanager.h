@@ -69,6 +69,13 @@ public:
     bool autoSync() const { return m_autoSync; }
     int syncInterval() const { return m_syncIntervalMinutes; }
     SyncDirection syncDirection() const { return m_syncDirection; }
+    
+    // 获取配置文件路径
+    static QString getConfigFilePath();
+    
+    // 备份与恢复配置
+    static bool backupConfig(const QString &backupDir);
+    static bool restoreConfig(const QString &backupDir);
 
 public slots:
     // 开始同步

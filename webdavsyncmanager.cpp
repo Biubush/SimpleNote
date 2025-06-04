@@ -227,7 +227,9 @@ void WebDAVSyncManager::setSyncInterval(int minutes)
 
 void WebDAVSyncManager::loadConfig()
 {
-    QSettings settings;
+    // 使用单独的配置文件
+    QSettings settings(getConfigFilePath(), QSettings::IniFormat);
+    
     settings.beginGroup("WebDAV");
     
     m_serverUrl = settings.value("ServerUrl", "").toString();
@@ -247,7 +249,7 @@ void WebDAVSyncManager::loadConfig()
     // 更新WebDAV连接设置
     if (isConfigured()) {
         QWebdav::QWebdavConnectionType connType = m_useSSL ? QWebdav::HTTPS : QWebdav::HTTP;
-        m_webdav->setConnectionSettings(connType, m_serverUrl, m_remoteFolder, m_username, m_password, m_port);
+        m_webdav->setConnectionSettings(connType, m_serverUrl, "", m_username, m_password, m_port);
         m_status = Idle;
     } else {
         m_status = NotConfigured;
@@ -259,7 +261,9 @@ void WebDAVSyncManager::loadConfig()
 
 void WebDAVSyncManager::saveConfig()
 {
-    QSettings settings;
+    // 使用单独的配置文件
+    QSettings settings(getConfigFilePath(), QSettings::IniFormat);
+    
     settings.beginGroup("WebDAV");
     
     settings.setValue("ServerUrl", m_serverUrl);
@@ -275,6 +279,62 @@ void WebDAVSyncManager::saveConfig()
     settings.setValue("LastSyncTime", m_lastSyncTime);
     
     settings.endGroup();
+    
+    // 确保设置立即保存
+    settings.sync();
+}
+
+QString WebDAVSyncManager::getConfigFilePath()
+{
+    // 获取应用程序数据目录
+    QString appDataDir = NoteDatabase::getDatabaseDir();
+    
+    // 配置文件存储在数据目录下，但不在images目录中，避免被同步
+    return appDataDir + "/webdav_config.ini";
+}
+
+bool WebDAVSyncManager::backupConfig(const QString &backupDir)
+{
+    QString configPath = getConfigFilePath();
+    QFile configFile(configPath);
+    
+    // 如果配置文件不存在，说明没有配置过，不需要备份
+    if (!configFile.exists()) {
+        return true;
+    }
+    
+    // 确保备份目录存在
+    QDir dir;
+    if (!dir.exists(backupDir)) {
+        if (!dir.mkpath(backupDir)) {
+            return false;
+        }
+    }
+    
+    // 执行备份
+    QString backupPath = backupDir + "/webdav_config.ini";
+    return configFile.copy(backupPath);
+}
+
+bool WebDAVSyncManager::restoreConfig(const QString &backupDir)
+{
+    QString configPath = getConfigFilePath();
+    QString backupPath = backupDir + "/webdav_config.ini";
+    QFile backupFile(backupPath);
+    
+    // 如果备份文件不存在，不需要还原
+    if (!backupFile.exists()) {
+        return true;
+    }
+    
+    // 如果当前有配置文件，先删除
+    QFile configFile(configPath);
+    if (configFile.exists() && !configFile.remove()) {
+        return false;
+    }
+    
+    // 执行还原
+    return backupFile.copy(configPath);
 }
 
 void WebDAVSyncManager::onWebDAVError(const QString &error)
@@ -711,7 +771,14 @@ void WebDAVSyncManager::uploadFile(const QString &relativePath)
         remotePath = "/" + remotePath;
     }
     
+    // 检查是否是WebDAV配置文件，如果是则跳过
     QString localPath = localFilePath(remotePath);
+    if (localPath == getConfigFilePath()) {
+        qDebug() << "跳过上传WebDAV配置文件:" << localPath;
+        onFileUploadFinished();
+        return;
+    }
+    
     QFile file(localPath);
     
     if (!file.open(QIODevice::ReadOnly)) {
