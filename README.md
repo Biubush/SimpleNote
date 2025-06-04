@@ -16,6 +16,7 @@ SimpleNote是一个基于Qt开发的轻量级便签应用程序，提供简洁�
 - 便签窗口置顶功能
 - 便签搜索功能
 - 支持独立编辑窗口
+- **WebDAV云同步功能**，支持便签数据和图片的云端备份与同步
 
 ## 界面展示
 
@@ -33,7 +34,7 @@ SimpleNote是一个基于Qt开发的轻量级便签应用程序，提供简洁�
 编辑界面支持富文本编辑，包括文本格式设置和图片插入功能。
 
 <div align="center">
-  <img src="imgs/editor.png" alt="便签编辑界面" width="500">
+  <img src="imgs/editor.png" alt="便签编辑界面" width="350">
   <p><i>便签编辑界面</i></p>
 </div>
 
@@ -46,6 +47,15 @@ SimpleNote是一个基于Qt开发的轻量级便签应用程序，提供简洁�
   <p><i>图片查看功能</i></p>
 </div>
 
+### WebDAV云同步
+
+支持通过WebDAV协议将便签数据和图片同步到云端服务器，实现多设备数据共享。
+
+<div align="center">
+<img src="imgs/sync.png" alt="图片查看功能" width="450">
+  <p><i>WebDAV同步配置界面</i></p>
+</div>
+
 ## 技术架构
 
 ### 核心组件
@@ -55,11 +65,14 @@ SimpleNote是一个基于Qt开发的轻量级便签应用程序，提供简洁�
 3. **NoteEditWidget** - 便签编辑组件，支持富文本编辑和图片插入
 4. **NoteDatabase** - 数据库操作类，处理便签的存储和检索
 5. **Note** - 便签数据模型，定义便签的基本结构
+6. **WebDAVSyncManager** - WebDAV同步管理器，处理云端同步逻辑
+7. **WebDAVConfigDialog** - WebDAV配置界面，提供用户友好的同步设置
 
 ### 数据存储
 
 - 使用SQLite数据库存储便签数据
 - 图片文件存储在本地文件系统
+- 通过WebDAV协议实现云端数据备份和同步
 
 ## 项目结构
 
@@ -74,9 +87,17 @@ SimpleNote/
 ├── noteeditwidget.h/cpp  # 便签编辑组件
 ├── notedatabase.h/cpp    # 数据库操作类
 ├── note.h/cpp            # 便签数据模型
+├── webdavsyncmanager.h/cpp # WebDAV同步管理器
+├── webdavconfigdialog.h/cpp # WebDAV配置对话框
 ├── mainwindow.ui         # 主窗口UI设计
 ├── notelistwidget.ui     # 便签列表UI设计
 ├── noteeditwidget.ui     # 便签编辑器UI设计
+├── webdavconfigdialog.ui # WebDAV配置UI设计
+├── QtWebDAV/             # QtWebDAV库
+│   ├── qwebdav.h/cpp     # WebDAV客户端实现
+│   ├── qwebdavdirparser.h/cpp # WebDAV目录解析器
+│   ├── qwebdav_global.h  # WebDAV全局定义
+│   └── QtWebDAV.pri      # WebDAV库项目包含文件
 ├── icons/                # 应用图标资源
 │   ├── simplenote.ico    # Windows图标
 │   └── simplenote.png    # 通用图标
@@ -94,6 +115,7 @@ SimpleNote/
 - 主窗口采用简洁的卡片式设计
 - 便签列表使用自定义代理绘制美观的便签卡片
 - 编辑窗口支持富文本编辑和图片展示
+- WebDAV配置界面简洁明了，易于设置
 - 统一的视觉风格和交互体验
 
 ## 编译与运行
@@ -103,6 +125,7 @@ SimpleNote/
 - Qt 5.15或更高版本
 - 支持C++17的编译器
 - Qt SQL模块支持
+- Qt Network模块支持（用于WebDAV同步）
 
 ### 编译步骤
 
@@ -138,3 +161,23 @@ SimpleNote/
 ### 搜索便签
 
 在便签列表顶部的搜索框中输入关键词，可以快速查找包含该关键词的便签。
+
+### WebDAV云同步
+
+#### 配置同步
+
+1. 点击主界面中的"云同步"按钮打开WebDAV配置对话框
+2. 输入WebDAV服务器地址、端口号、用户名和密码
+3. 设置远程文件夹路径（默认为"/SimpleNote"）
+4. 选择同步方向（双向、仅上传、仅下载）
+5. 设置是否启用自动同步及同步间隔
+6. 点击"测试连接"按钮验证配置是否正确
+7. 点击"确定"保存配置
+
+#### 手动同步
+
+点击主界面中的"立即同步"按钮手动触发同步过程。
+
+#### 同步状态
+
+同步过程中会显示进度信息，同步完成后会显示成功或失败状态。
