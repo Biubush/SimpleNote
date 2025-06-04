@@ -7,6 +7,7 @@
 #include <QApplication>
 #include <QScreen>
 #include <QToolBar>
+#include <QToolButton>
 #include <QPushButton>
 #include <QFileDialog>
 #include <QStandardPaths>
@@ -131,27 +132,21 @@ void MainWindow::setupToolBar()
     m_toolBar = new QToolBar(this);
     m_toolBar->setMovable(false);
     m_toolBar->setFloatable(false);
-    m_toolBar->setIconSize(QSize(16, 16));
+    m_toolBar->setIconSize(QSize(16, 16)); // 增大图标尺寸，让它们更醒目
     m_toolBar->setStyleSheet(
-        "QToolBar { border: none; background-color: #F5F5F5; spacing: 5px; padding: 2px; }"
-        "QToolButton { border: 1px solid transparent; border-radius: 3px; padding: 2px; background-color: transparent; }"
-        "QToolButton:hover { background-color: #2196F3; border: 1px solid #1E88E5; color: white; }"
-        "QToolButton:pressed { background-color: #1976D2; color: white; }"
+        "QToolBar { border: none; background-color: #F5F5F5; spacing: 8px; padding: 4px; }"
+        "QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 4px; background-color: transparent; }"
+        "QToolButton:hover { background-color: #E3F2FD; border: 1px solid #BBDEFB; }"
+        "QToolButton:pressed { background-color: #BBDEFB; }"
+        "QToolButton:checked { background-color: #BBDEFB; border: 1px solid #2196F3; }"
+        "QToolButton:disabled { opacity: 0.5; }"
     );
     
-    // 创建导出和导入按钮
-    m_exportAction = new QAction(QIcon::fromTheme("document-save", QApplication::style()->standardIcon(QStyle::SP_DialogSaveButton)), "", this);
-    m_importAction = new QAction(QIcon::fromTheme("document-open", QApplication::style()->standardIcon(QStyle::SP_DialogOpenButton)), "", this);
-    
-    // 创建WebDAV配置和同步按钮
-    m_webdavConfigAction = new QAction(QIcon::fromTheme("network-server", QApplication::style()->standardIcon(QStyle::SP_ComputerIcon)), "", this);
-    m_syncAction = new QAction(QIcon::fromTheme("view-refresh", QApplication::style()->standardIcon(QStyle::SP_BrowserReload)), "", this);
-    
-    // 设置图标为自动使用系统主题颜色
-    m_exportAction->setProperty("iconVisibleInMenu", true);
-    m_importAction->setProperty("iconVisibleInMenu", true);
-    m_webdavConfigAction->setProperty("iconVisibleInMenu", true);
-    m_syncAction->setProperty("iconVisibleInMenu", true);
+    // 使用icons文件夹中的自定义图标替换默认图标
+    m_exportAction = new QAction(QIcon(":/icons/export.png"), "", this);
+    m_importAction = new QAction(QIcon(":/icons/import.png"), "", this);
+    m_webdavConfigAction = new QAction(QIcon(":/icons/webdav.png"), "", this);
+    m_syncAction = new QAction(QIcon(":/icons/sync.png"), "", this);
     
     // 设置提示文本
     m_exportAction->setToolTip("导出便签数据");
@@ -177,6 +172,17 @@ void MainWindow::setupToolBar()
     
     // 设置工具栏位置
     addToolBar(Qt::TopToolBarArea, m_toolBar);
+    
+    // 为按钮添加可选中状态，以便更好地显示激活状态
+    QToolButton* syncButton = qobject_cast<QToolButton*>(m_toolBar->widgetForAction(m_syncAction));
+    if (syncButton) {
+        syncButton->setCheckable(true);
+    }
+    
+    QToolButton* webdavButton = qobject_cast<QToolButton*>(m_toolBar->widgetForAction(m_webdavConfigAction));
+    if (webdavButton) {
+        webdavButton->setCheckable(true);
+    }
     
     // 连接信号和槽
     connect(m_exportAction, &QAction::triggered, this, &MainWindow::exportDatabase);
@@ -376,6 +382,12 @@ void MainWindow::closeAllNoteWindows()
 
 void MainWindow::exportDatabase()
 {
+    // 设置导出按钮为选中状态
+    QToolButton* exportButton = qobject_cast<QToolButton*>(m_toolBar->widgetForAction(m_exportAction));
+    if (exportButton) {
+        exportButton->setChecked(true);
+    }
+    
     // 关闭数据库连接
     m_database->close();
     
@@ -401,6 +413,11 @@ void MainWindow::exportDatabase()
     if (savePath.isEmpty()) {
         // 重新打开数据库
         m_database->open();
+        
+        // 恢复按钮状态
+        if (exportButton) {
+            exportButton->setChecked(false);
+        }
         return;
     }
     
@@ -417,7 +434,7 @@ void MainWindow::exportDatabase()
     progressMsg.setIcon(QMessageBox::Information);
     
     // 创建一个定时器，用于在对话框显示后启动导出过程
-    QTimer::singleShot(200, this, [this, dbDir, savePath, &progressMsg]() {
+    QTimer::singleShot(200, this, [this, dbDir, savePath, &progressMsg, exportButton]() {
         bool success = false;
         // 使用Qt内置的压缩功能创建一个压缩包
         QProcess zipProcess;
@@ -518,6 +535,11 @@ void MainWindow::exportDatabase()
             progressMsg.done(0);
             // 重新打开数据库
             m_database->open();
+            
+            // 恢复按钮状态
+            if (exportButton) {
+                exportButton->setChecked(false);
+            }
             return;
         }
     #endif
@@ -538,6 +560,11 @@ void MainWindow::exportDatabase()
         // 重新打开数据库
         m_database->open();
         
+        // 恢复按钮状态
+        if (exportButton) {
+            exportButton->setChecked(false);
+        }
+        
         if (zipProcess.exitCode() == 0) {
             QMessageBox::information(this, "导出成功", "便签数据已成功导出至:\n" + savePath);
             success = true;
@@ -553,6 +580,12 @@ void MainWindow::exportDatabase()
 
 void MainWindow::importDatabase()
 {
+    // 设置导入按钮为选中状态
+    QToolButton* importButton = qobject_cast<QToolButton*>(m_toolBar->widgetForAction(m_importAction));
+    if (importButton) {
+        importButton->setChecked(true);
+    }
+    
     // 提示用户注意事项
     QMessageBox::StandardButton reply = QMessageBox::question(this, 
         "导入便签数据", 
@@ -560,6 +593,10 @@ void MainWindow::importDatabase()
         QMessageBox::Yes | QMessageBox::No);
         
     if (reply != QMessageBox::Yes) {
+        // 恢复按钮状态
+        if (importButton) {
+            importButton->setChecked(false);
+        }
         return;
     }
     
@@ -569,6 +606,10 @@ void MainWindow::importDatabase()
                                                    "ZIP文件 (*.zip)");
     
     if (importPath.isEmpty()) {
+        // 恢复按钮状态
+        if (importButton) {
+            importButton->setChecked(false);
+        }
         return;
     }
     
@@ -595,7 +636,7 @@ void MainWindow::importDatabase()
     progressMsg.setIcon(QMessageBox::Information);
     
     // 创建一个定时器，用于在对话框显示后启动导入过程
-    QTimer::singleShot(200, this, [this, dbDir, tempDir, importPath, appPath, appArgs, &progressMsg]() {
+    QTimer::singleShot(200, this, [this, dbDir, tempDir, importPath, appPath, appArgs, &progressMsg, importButton]() {
         bool success = false;
         QProcess unzipProcess;
         
@@ -711,11 +752,21 @@ void MainWindow::importDatabase()
         } else {
             // 如果无法创建脚本文件，显示错误
             QMessageBox::warning(this, "导入失败", "无法创建临时脚本文件。");
+            
+            // 恢复按钮状态
+            if (importButton) {
+                importButton->setChecked(false);
+            }
         }
     #endif
         
         // 关闭进度对话框
         progressMsg.done(0);
+        
+        // 恢复按钮状态（但如果成功后会重启，所以不是严格必要）
+        if (importButton) {
+            importButton->setChecked(false);
+        }
         
         // 如果导入成功，重启应用
         if (success) {
@@ -786,6 +837,12 @@ void MainWindow::setupWebDAVSync()
 
 void MainWindow::showWebDAVConfigDialog()
 {
+    // 设置WebDAV配置按钮为选中状态
+    QToolButton* webdavButton = qobject_cast<QToolButton*>(m_toolBar->widgetForAction(m_webdavConfigAction));
+    if (webdavButton) {
+        webdavButton->setChecked(true);
+    }
+    
     // 创建并显示WebDAV配置对话框
     WebDAVConfigDialog dialog(this);
     dialog.setSyncManager(m_webdavSyncManager);
@@ -793,6 +850,11 @@ void MainWindow::showWebDAVConfigDialog()
     if (dialog.exec() == QDialog::Accepted) {
         // 如果配置成功，启用同步按钮
         m_syncAction->setEnabled(m_webdavSyncManager->isConfigured());
+    }
+    
+    // 对话框关闭后，取消WebDAV配置按钮的选中状态
+    if (webdavButton) {
+        webdavButton->setChecked(false);
     }
 }
 
@@ -809,23 +871,30 @@ void MainWindow::manualSync()
 
 void MainWindow::onSyncStatusChanged(WebDAVSyncManager::SyncStatus status)
 {
+    // 获取同步按钮并控制其选中状态
+    QToolButton* syncButton = qobject_cast<QToolButton*>(m_toolBar->widgetForAction(m_syncAction));
+    
     // 根据同步状态更新UI
     switch (status) {
     case WebDAVSyncManager::Syncing:
         statusBar()->showMessage(tr("正在同步..."));
         m_syncAction->setEnabled(false);
+        if (syncButton) syncButton->setChecked(true); // 同步中显示为激活状态
         break;
     case WebDAVSyncManager::Idle:
         statusBar()->showMessage(tr("同步就绪"), 5000);
         m_syncAction->setEnabled(true);
+        if (syncButton) syncButton->setChecked(false); // 同步完成取消激活状态
         break;
     case WebDAVSyncManager::Error:
         statusBar()->showMessage(tr("同步错误"), 5000);
         m_syncAction->setEnabled(true);
+        if (syncButton) syncButton->setChecked(false);
         break;
     case WebDAVSyncManager::NotConfigured:
         statusBar()->showMessage(tr("WebDAV未配置"), 5000);
         m_syncAction->setEnabled(false);
+        if (syncButton) syncButton->setChecked(false);
         break;
     }
 }
