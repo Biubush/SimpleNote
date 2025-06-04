@@ -238,8 +238,8 @@ QList<Note> NoteDatabase::searchNotes(const QString &keyword)
     query.prepare("SELECT id, title, content, create_time, update_time FROM notes "
                  "WHERE title LIKE ? OR content LIKE ? "
                  "ORDER BY update_time DESC");
-    query.addBindValue("%" + keyword + "%");
-    query.addBindValue("%" + keyword + "%");
+    query.addBindValue(QString("%%1%").arg(keyword));
+    query.addBindValue(QString("%%1%").arg(keyword));
     
     if (!query.exec()) {
         qDebug() << "搜索笔记失败: " << query.lastError().text();
